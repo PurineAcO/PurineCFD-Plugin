@@ -1,4 +1,6 @@
 results/
 data/
 refs/
-# POD/
+# POD/__pycache__/
+.vscode/
+*.pyc
