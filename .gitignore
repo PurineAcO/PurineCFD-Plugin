@@ -4,3 +4,4 @@ refs/
 # POD/__pycache__/
 .vscode/
 *.pyc
+*checkpoint.ipynb
