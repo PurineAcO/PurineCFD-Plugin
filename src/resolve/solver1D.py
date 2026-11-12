@@ -1,11 +1,12 @@
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
-
+import time
 
 class flowsolve:
-    def __init__(self,M0,T0,p_out,L,N,CFL=1.0,t_end=4.0e-3,snap_t=None):
+    def __init__(self, M0, T0, p_out, L, N, CFL=1.0, t_end=4.0e-3, snap_t=None, csv_name='history.csv'):
 
         self.gamma = 1.4
         self.Rgas = 287.0
@@ -36,7 +37,8 @@ class flowsolve:
         self.snaps = []
         self.steps = 0
 
-    
+        self.csvname = csv_name
+
     def prim(self, U):
         U = np.asarray(U)
         rho, mom, E = (U[0], U[1], U[2]) if U.ndim == 1 else (U[:, 0], U[:, 1], U[:, 2])
@@ -100,7 +102,7 @@ class flowsolve:
 
         pert = self.pulse * np.exp(-((self.x - 0.5 * self.L) / (self.pulse_width * self.L)) ** 2)
         p = self.p_out * (1.0 + pert)
-        rho = self.rho0 * (p / self.p_out) ** (1.0 / gamma)  # 等熵扰动
+        rho = self.rho0 * (p / self.p_out) ** (1.0 / gamma)
         for i in range(self.N):
             U[i] = self.cons(rho[i], self.u0, p[i])
         return U
@@ -149,12 +151,17 @@ class flowsolve:
         dU = spla.spsolve(Mat, Res.reshape(-1)).reshape(self.N, 3)
         return U + dU
 
+    def _dump_step(self, fh, step, t, U):
+        _, _, p = self.prim(U)
+        fh.write(f'{t:.10e},' + ','.join(f'{pi:.10e}' for pi in p) + '\n')
+
     def solve(self, t_end=None, snap_t=None, verbose=True):
         if t_end is not None:
             self.t_end = float(t_end)
         if snap_t is not None:
             self.snap_t = [float(s) for s in sorted(snap_t)]
 
+        start_wall_time = time.time()
         U = self.initial_field()
         t = 0.0
         dt = self.dt
@@ -162,15 +169,21 @@ class flowsolve:
         next_snap = 1
         steps = 0
 
-        while t < self.t_end - 1e-14:
-            dt = min(dt, self.t_end - t)
-            U = self.step(U, dt)
-            t += dt
-            steps += 1
+        with open(self.csvname, 'w') as fh:
+            fh.write('t,' + ','.join(f'x={x:.6e}' for x in self.x) + '\n')
+            self._dump_step(fh, 0, 0.0, U)
 
-            while next_snap < len(self.snap_t) and t >= self.snap_t[next_snap] - 1e-14:
-                snaps.append((t, self.x.copy(), self.prim(U)[2]))
-                next_snap += 1
+            while t < self.t_end:
+                dt = min(dt, self.t_end - t)
+                U = self.step(U, dt)
+                t += dt
+                steps += 1
+
+                self._dump_step(fh, steps, t, U)
+
+                while next_snap < len(self.snap_t) and t >= self.snap_t[next_snap] - 1e-14:
+                    snaps.append((t, self.x.copy(), self.prim(U)[2]))
+                    next_snap += 1
 
         self.U = U
         self.t = t
@@ -180,6 +193,7 @@ class flowsolve:
         if verbose:
             print(f'N = {self.N}, dx = {self.dx:.4e} m, dt = {self.dt:.4e} s, steps = {self.steps}')
             print(f't = {self.t:.4e} s, snapshots = {len(self.snaps)}')
+            print(f'the history data is saved to {self.csvname},solution is finished in {time.time() - start_wall_time}s')
         return self
 
     def results(self):
